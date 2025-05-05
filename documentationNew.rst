@@ -540,6 +540,7 @@ If the GPU is allocatable run:
 
     kubectl get deployment ricxapp-ss -n ricxapp -o yaml > deploymentGPU.yaml
     nano deploymentGPU.yaml
+    kubectl apply -f deploymentGPU.yaml
 
 Update the the resources limits requests and add:
 NOTE: do not replace what is already there 
@@ -551,3 +552,9 @@ NOTE: do not replace what is already there
           nvidia.com/gpu: 1
 
 The Intrustion Detection program should now detect the GPU
+
+NOTE: Rerunning the xapp now requires deleting the pods manually if the deployment file is edited
+
+    Use "sudo kubectl get pods -A" to see the active pods
+    Use "sudo kubectl delete pod ricxapp-ss-XXX -n ricxapp" change the XXX the correct pod name
+    The correct pod to delete should be in the "running" state

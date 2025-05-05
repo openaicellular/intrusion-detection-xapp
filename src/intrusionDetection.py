@@ -282,10 +282,7 @@ def fetchData():
             
             
             return -1
-                    
-                    
-
-
+                        
     except Exception as e:
         print("Intrusion Detection: Error during inference", flush=True)
         print("Error Message:", e, flush=True)
