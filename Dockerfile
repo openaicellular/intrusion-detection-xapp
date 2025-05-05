@@ -1,4 +1,6 @@
-FROM ubuntu:18.04
+FROM nvidia/cuda:11.1.1-runtime-ubuntu18.04
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 # O-RAN upstream repo: release or staging (staging probably
 # only makes sense if you also set ORAN_VERSIONS=latest).
@@ -27,8 +29,13 @@ RUN apt-get update \
 
 RUN apt-get update \
   && apt-get install -y python3-dev python3-pip \
-  && python3 -m pip install influxdb numpy torch torchvision torchaudio datetime psutil \
+  && python3 -m pip install influxdb numpy datetime psutil \
   && update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+  
+WORKDIR /app
+
+RUN python3 -m pip install --upgrade pip && \
+    python3 -m pip install torch==1.10.1+cu111 torchvision==0.11.2+cu111 torchaudio==0.10.1 -f https://download.pytorch.org/whl/cu111/torch_stable.html
 
 RUN cd /tmp \
   && git clone https://gitlab.flux.utah.edu/powderrenewpublic/xapp-frame-cpp \
@@ -91,3 +98,4 @@ ENV RMR_RTG_SVC="9999" \
 CMD [ "/usr/local/bin/nexran" ]
 
 EXPOSE 8000
+

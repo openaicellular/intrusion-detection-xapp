@@ -213,9 +213,22 @@ bool App::intrusion_detection()
 {
 	try
 	{
+		Py_Initialize();	// Initialize Python Interpreter
+
+		// Acquire GIL
+		gstate = PyGILState_Ensure();
+
+		PyRun_SimpleString("import sys; sys.argv = ['']");
+		PyRun_SimpleString("sys.path.append('/nexran/src/')");
+
+		PyObject *pName = PyUnicode_DecodeFSDefault("intrusionDetection");  // Module name you want to run
+		pModule = PyImport_Import(pName);
+		Py_DECREF(pName);  // Deallocate memory
+		
 		if (pModule != nullptr) {
 			// Get the function from the module
-			PyObject *pFunc = PyObject_GetAttrString(pModule, "fetchData");
+			PyObject *pFunc = PyObject_GetAttrString(pModule, "get_result");
+
 
 			// Check if the function is callable
 			if (pFunc && PyCallable_Check(pFunc)) {
@@ -232,10 +245,10 @@ bool App::intrusion_detection()
 						int result = PyLong_AsLong(pValue);  // Extract the integer value
 						if (result != -1)	// If there is a malicious UE
 						{
-							secure_slicing(result);
+							std::cout << "Malicous UE ID: " << result << std::endl;
 						}
 						else
-						{
+				                {
 							std::cout << "No Malicous UE found" << std::endl;
 						}
 					} else {
@@ -259,11 +272,14 @@ bool App::intrusion_detection()
 			PyErr_Print();
 			std::cerr << "Failed to load module 'intrusionDetection'" << std::endl;
 		}
+		
+        return true;
 
 	}
 	catch(...)
 	{
 		std::cout << "Error occured while Intrusion detection" << std::endl;
+        	return false;
 	}
 }
 
@@ -790,6 +806,7 @@ void App::start()
 
 	// Initialization of ML model in python
 
+        /*
 	try
 	{
 		Py_Initialize();	// Initialize Python Interpreter
@@ -841,6 +858,7 @@ void App::start()
 	{
 		std::cout << "Error occured while trying to load Intrusion detection" << std::endl;
 	}
+	*/
 
 }
 
@@ -1286,6 +1304,8 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
 			AppError **ae)
 {
     mutex.lock();
+    std::cout << "Reaching Bind UE Slice" << std::endl;
+
 
     if (db[App::ResourceType::SliceResource].count(slice_name) < 1) {
 	mutex.unlock();
@@ -1310,9 +1330,20 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
     Ue *ue = (Ue *)db[App::ResourceType::UeResource][imsi];
     Slice *slice = (Slice *)db[App::ResourceType::SliceResource][slice_name];
 
-	//ue->bind_slice(slice_name);
+    if (ue == nullptr) {
+        std::cerr << "Error: UE pointer is null!" << std::endl;
+        mutex.unlock();
+        return false;
+    }
+
+    if (slice == nullptr) {
+        std::cerr << "Error: Slice pointer is null!" << std::endl;
+        mutex.unlock();
+        return false;
+    }
 
 
+    /*
     if (ue->is_bound() || !slice->bind_ue(ue)) {
 		if (ue->is_bound()){mdclog_write(MDCLOG_DEBUG,"first condition");}
 		if (!slice->bind_ue(ue)) {mdclog_write(MDCLOG_DEBUG,"second condition");}
@@ -1323,7 +1354,7 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
 	    (*ae)->add(std::string("ue already bound to slice"));
 	}
 	return false;
-    }
+    } */
 
     ue->bind_slice(slice_name);
 
@@ -1332,7 +1363,8 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
 
     for (auto it = db[ResourceType::NodeBResource].begin();
 	 it != db[ResourceType::NodeBResource].end();
-	 ++it) {
+	 ++it) {    
+
 	NodeB *nodeb = (NodeB *)it->second;
 
 	if (!nodeb->is_slice_bound(slice_name))
