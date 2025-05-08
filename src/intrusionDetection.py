@@ -11,9 +11,11 @@ from torch.utils.data import DataLoader, TensorDataset
 from datetime import datetime, timedelta
 
 
+
 import gc
 import sys
 
+#import wandb
 
 torch.set_num_threads(1)
 
@@ -44,6 +46,16 @@ trained = False
 use_influx_data = True
 
 n_features = 3  # Adjust based on the number of features (e.g., tx_pkts, tx_error, cqi)
+#os.environ["WANDB_MODE"] = "offline"
+
+#wandb.init(project="rnn-autoencoder-anomaly-test2", config={
+#    "seq_length": seq_length,
+#    "hidden_dim": hidden_dim,
+#    "latent_dim": latent_dim,
+#    "batch_size": batch_size,
+#    "learning_rate": learning_rate,
+#    "num_epochs": num_epochs
+#})
 
 # RNN Autoencoder model
 class RNN_Autoencoder(nn.Module):
@@ -83,7 +95,7 @@ else:
 
 model.eval()
       
-def train_model(model, data_tensor, num_epochs=200, batch_size=32, learning_rate=0.01):
+def train_model(model, data_tensor, num_epochs=100, batch_size=32, learning_rate=0.01):
 
     global trained
 
@@ -105,6 +117,8 @@ def train_model(model, data_tensor, num_epochs=200, batch_size=32, learning_rate
             reconstructed = model(data_batch)
 
             loss = criterion(reconstructed, data_batch)
+            #wandb.log({"epoch": epoch + 1, "loss": loss})
+
             print('loss:', loss, flush = True)
 
             loss.backward()
@@ -117,29 +131,28 @@ def train_model(model, data_tensor, num_epochs=200, batch_size=32, learning_rate
                     input_sample = data_batch[0].cpu().numpy()
                     reconstructed_sample = reconstructed[0].cpu().numpy()
 
-
         avg_epoch_loss = epoch_loss / len(dataloader)
         print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_epoch_loss:.4f}", flush=True)
-
-
-        avg_epoch_loss = epoch_loss / len(dataloader)
-        print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_epoch_loss:.4f}", flush=True)
+        
+        #wandb.log({"epoch": epoch + 1, "Average Epoch loss": avg_epoch_loss})
 
         if (epoch + 1) % 100 == 0:
             #torch.save(model.state_dict(), f"autoencoder_epoch_{epoch + 1}.pth")
             torch.save(model.state_dict(), model_path)
             print(f"Model saved at epoch {epoch + 1}")
-
-    trained = True
+    #trained = True
     print("Training complete.", flush=True)
+    #wandb.finish()
+    torch.cuda.empty_cache()
+    gc.collect()
     return 1
 
-def fetch_data_from_influxdb(seq_length, n_features, measurement, fields, duration='10m'):
+def fetch_data_from_influxdb(seq_length, n_features, measurement, fields, duration='1m'):
     all_tensors = []
     all_ue_ids = []
 
     # Query to get distinct UE IDs
-    query = f'SELECT * FROM "ue" LIMIT 10'
+    query = f'SELECT * FROM "ue" WHERE time > now() - 1m'
     print("Querying InfluxDB for unique UE IDs...")
     result = client.query(query)
     points = list(result.get_points())
@@ -162,7 +175,7 @@ def fetch_data_from_influxdb(seq_length, n_features, measurement, fields, durati
         print(f"Querying InfluxDB for UE: {ue_id}")
         result = client.query(query)
         points = list(result.get_points())
-
+ 
         if not points:
             print(f"No data found for UE {ue_id}")
             continue
@@ -197,24 +210,43 @@ def fetch_data_from_influxdb(seq_length, n_features, measurement, fields, durati
     return final_tensor, all_ue_ids
 
 # Inference and anomaly detection
-def detect_anomalies(model, data_tensor, threshold=0.4):
-    model.eval()
-    with torch.no_grad():
-        data_tensor = data_tensor.to(device)
-        reconstructed = model(data_tensor)
-        mse = torch.mean((data_tensor - reconstructed) ** 2, dim=(1, 2))
-        anomalies = (mse > threshold).nonzero(as_tuple=True)[0]
-        sample_index = 0
-        if len(data_tensor) > sample_index:
-            input_sample = data_tensor[sample_index].cpu().numpy()
-            recon_sample = reconstructed[sample_index].cpu().numpy()
+def detect_anomalies(model, data_tensor, threshold=None):
+    try:
+        model.eval()
+        with torch.no_grad():
+            data_tensor = data_tensor.to(device)
+            reconstructed = model(data_tensor)
+            mse = torch.mean((data_tensor - reconstructed) ** 2, dim=(1, 2))
+            
+            if threshold is None:
+                mean_mse = torch.mean(mse)
+                std_mse = torch.std(mse)
+                threshold = mean_mse + 1 * std_mse
+                print("Mean MSE:", mean_mse.item(), flush=True)
+                print("Std MSE:", std_mse.item(), flush=True)
+               
+            anomalies = (mse > threshold).nonzero(as_tuple=True)[0]
+            
+            print("MSE values:", mse.cpu().numpy(), flush=True)
+            print("Threshold used:", threshold, flush=True)
+            print("MSE max:", torch.max(mse).item(), flush=True)
+            print("MSE min:", torch.min(mse).item(), flush=True)
 
-        if len(anomalies) > 0:
-            print(f"Anomalies detected at indices: {anomalies.tolist()}", flush=True)
-            print(f"First anomaly index (anomalies[0]): {anomalies[0].item()}", flush=True)
-            return int(anomalies[0])
-        else:
-            return -1
+            sample_index = 0
+            if len(data_tensor) > sample_index:
+                input_sample = data_tensor[sample_index].cpu().numpy()
+                recon_sample = reconstructed[sample_index].cpu().numpy()
+
+            if len(anomalies) > 0:
+                print(f"Anomalies detected at indices: {anomalies.tolist()}", flush=True)
+                print(f"First anomaly index (anomalies[0]): {anomalies[0].item()}", flush=True)
+                return int(anomalies[0])
+            else:
+                return -1
+
+    except Exception as e:
+        print("Error during anomaly detection:", e, flush=True)
+        return -1
 
 # Main entry point
 def fetchData():
@@ -238,58 +270,60 @@ def fetchData():
 
     try:
         if use_influx_data:
-            # Replace this with actual InfluxDB query if available
-            print("Using dummy random data for now (Influx fetch not implemented).", flush=True)
             tensor_data, all_ue_ids = fetch_data_from_influxdb(seq_length, n_features, measurement, fields)
             print("\n--- Result from fetch_data_from_influxdb ---")
-            #print(tensor_data, flush = True)
             print(f"All UE IDs: {all_ue_ids}", flush=True)
-
         else:
-            print("Aint got no data", flush = True)
-            
+            print("Aint got no data", flush=True)
+
         if trained == True:
-            result = detect_anomalies(model, tensor_data, threshold=0.1)
-            
+            if os.path.exists(model_path):
+                model.load_state_dict(torch.load(model_path, map_location=device))
+                print("Model loaded from disk for inference", flush=True)
+            else:
+                print("Model path not found during inference!", flush=True)
+                return -1
+
+            result = detect_anomalies(model, tensor_data)
+
             if result != -1:
                 ue_with_anomaly = all_ue_ids[result]
                 print(f"Returning UE ID with anomaly: {ue_with_anomaly}", flush=True)
                 return int(ue_with_anomaly)
-
-            
         else:
-            print("Training Model", flush = True)
-            result = train_model(model, tensor_data, num_epochs=500, batch_size=32, learning_rate=0.01)
-            print("Training finished", flush = True)
-            
+            print("Training Model", flush=True)
+            result = train_model(model, tensor_data, num_epochs=2000, batch_size=32, learning_rate=0.01)
+            print("Training finished", flush=True)
+
             if os.path.exists(model_path):
                 print("Path Exists", flush=True)
                 model.load_state_dict(torch.load(model_path, map_location=device))
                 print("Model loaded successfully 2", flush=True)
+                trained = True
+                print("Trained flag set to True", flush=True)
 
-            
-            if trained == True:
                 result = detect_anomalies(model, tensor_data, threshold=0.1)
-                print("Anomalies successfully detected", flush = True)
-            
-                if result != -1:
+                print("Anomalies successfully detected", flush=True)
+                #print(f"result: {result}, all_ue_ids: {all_ue_ids}", flush=True)
+
+                if all_ue_ids and result != -1 and result < len(all_ue_ids):
                     ue_with_anomaly = all_ue_ids[result]
                     print(f"Returning UE ID with anomaly: {ue_with_anomaly}", flush=True)
                     return int(ue_with_anomaly)
                 else:
-                    print("No anomalies found", flush=True)
-                    return -1 
-            
-            
+                    print("Result index out of range or all_ue_ids is None!", flush=True)
+                    return -1
+
             return -1
-                        
+
     except Exception as e:
         print("Intrusion Detection: Error during inference", flush=True)
         print("Error Message:", e, flush=True)
         return -1
-        
+
     print("Reached end of fetchData without returning a result", flush=True)
     return -1
+
    
 #result_from_fetch = fetchData()   
 

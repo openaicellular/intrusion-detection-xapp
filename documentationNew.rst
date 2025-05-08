@@ -278,8 +278,10 @@ Replace these lines of code with text given below. This allows the ENB to be abl
 
 .. code-block:: text
 
-    ue2,xor,001010123456780,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,8000,000000001635,7,dynamic
-    ue1,xor,001010123456789,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,9001,00000000131b,7,dynamic
+    ue2,xor,001010123456780,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,8000,00000000173d,7,dynamic
+    ue3,xor,001010123456781,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,8002,0000000015f3,7,dynamic
+    ue4,xor,001010123456782,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,8003,0000000015f4,7,dynamic
+    ue1,xor,001010123456789,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,9001,000000001404,7,dynamic
 
 Exit out of sudo once you are done editing the file
 
@@ -312,7 +314,7 @@ Now we are going to build the xapp from the ``DockerFile``.
     cd ~/oaic/intrusion-detection-xapp
     sudo docker build . -t xApp-registry.local:5008/ss:0.1.0
 
-Paste the following in the ``ss-xapp-onboard.url`` file located in the ``ss-xapp`` directory. Substitute the ``<machine_ip_addr>`` with the IP address of your machine. You can find this by pasting the command ``hostname -I | cut -f1 -d' '`` in the terminal.
+Paste the following in the ``ss-xapp-onboard.url`` file located in the ``intrusion-detection-xapp`` directory. Substitute the ``<machine_ip_addr>`` with the IP address of your machine. You can find this by pasting the command ``hostname -I | cut -f1 -d' '`` in the terminal.
 
 .. code-block:: bash
 
@@ -339,6 +341,8 @@ Srsepc
 
     sudo ip netns add ue1
     sudo ip netns add ue2
+    sudo ip netns add ue3
+    sudo ip netns add ue4
     sudo ip netns list
     sudo srsepc
 
@@ -389,16 +393,30 @@ Srsue
 
     sudo srsue \
     --rf.device_name=zmq --rf.device_args="tx_port=tcp://*:2007,rx_port=tcp://localhost:2400,id=ue,base_srate=23.04e6" --usim.algo=xor --usim.imsi=001010123456780 --usim.k=00112233445566778899aabbccddeeff --usim.imei=353490069873310 --log.all_level=warn --log.filename=stdout --gw.netns=ue2
+    
+**Terminal 5**: Set up the third UE
+
+.. code-block:: bash
+
+    sudo srsue \
+    --rf.device_name=zmq --rf.device_args="tx_port=tcp://*:2008,rx_port=tcp://localhost:2500,id=ue,base_srate=23.04e6" --usim.algo=xor --usim.imsi=001010123456781 --usim.k=00112233445566778899aabbccddeeff --usim.imei=353490069873310 --log.all_level=warn --log.filename=stdout --gw.netns=ue3
+    
+**Terminal 6**: Set up the fourth UE
+
+.. code-block:: bash
+
+    sudo srsue \
+    --rf.device_name=zmq --rf.device_args="tx_port=tcp://*:2011,rx_port=tcp://localhost:2600,id=ue,base_srate=23.04e6" --usim.algo=xor --usim.imsi=001010123456782 --usim.k=00112233445566778899aabbccddeeff --usim.imei=353490069873310 --log.all_level=warn --log.filename=stdout --gw.netns=ue4
 
 Gnuradio
 ~~~~~~~~
 
-**Terminal 5**: Run the Gnuradio script
+**Terminal 7**: Run the Gnuradio script
 
 .. code-block:: bash
 
     cd ~/oaic/intrusion-detection-xapp
-    python3 two_ue.py
+    python3 four_ue.py
 
 .. warning::
 
@@ -411,7 +429,7 @@ Iperf3
 
     Execute the next commands each in a separate terminal
 
-**Terminal 6/7**: Set up iperf3 test on the server side
+**Terminal 8-11**: Set up iperf3 test on the server side
 
 .. code-block:: bash
 
@@ -420,24 +438,40 @@ Iperf3
 .. code-block:: bash
 
     iperf3 -s -B 172.16.0.1 -p 5020 -i 1
+    
+.. code-block:: bash
+
+    iperf3 -s -B 172.16.0.1 -p 5021 -i 1
+    
+.. code-block:: bash
+
+    iperf3 -s -B 172.16.0.1 -p 5022 -i
 
 .. note::
 
     Execute the next commands each in a separate terminal
 
-**Terminal 8/9**: Set up iperf3 test on the client side
+**Terminal 12-15**: Set up iperf3 test on the client side
 
-We add an additional bandwidth argument "-b xxM" on each iperf3 test on client side to create a scenario of UEs trying to access more or less of resources on the network. If a UE surpasses the pre-determined threshold for amount of data packets transmitted, it is considered as malicious by the SS xApp.
+We add an additional bandwidth argument "-b xxM" on each iperf3 test on client side to create a scenario of UEs trying to access more or less of resources on the network. If a UE surpasses the pre-determined threshold for amount of data packets transmitted, it is considered as malicious by the xApp.
 
 .. code-block:: bash
 
-   sudo ip netns exec ue1 iperf3 -c 172.16.0.1 -p 5006 -i 1 -t 36000 -R -b 40M
+   sudo ip netns exec ue1 iperf3 -c 172.16.0.1 -p 5006 -i 1 -t 36000 -R -b 10M
 
 .. code-block:: bash
 
    sudo ip netns exec ue2 iperf3 -c 172.16.0.1 -p 5020 -i 1 -t 36000 -R -b 10M
+   
+.. code-block:: bash
 
-You should notice traffic flow on both the server and client side for both UEs.
+   sudo ip netns exec ue3 iperf3 -c 172.16.0.1 -p 5021 -i 1 -t 36000 -R -b 10M
+   
+.. code-block:: bash
+
+   sudo ip netns exec ue4 iperf3 -c 172.16.0.1 -p 5022 -i 1 -t 36000 -R -b 10M
+
+You should notice traffic flow on both the server and client side for all UEs.
 
 .. _Deploying:
 
@@ -476,7 +510,7 @@ Deploying the xApp
 Running the xApp
 ================
 
-**Terminal 10**: In your EPC & eNB server's terminal, print the logs for the SS xApp
+**Terminal 16**: In your EPC & eNB server's terminal, print the logs for the SS xApp
 
 .. note::
 
@@ -486,24 +520,32 @@ Running the xApp
 
     sudo kubectl logs -f -n ricxapp -l app=ricxapp-ss
 
-**Terminal 11**: Now run the test script with the following commands on a separate terminal.
+**Terminal 17**: Now run the test script with the following commands on a separate terminal.
 
 .. code-block:: bash
 
     cd ~/oaic/intrusion-detection-xapp
-    sudo chmod +x zmqtwoue.sh
-    sudo ./zmqtwoue.sh
+    sudo chmod +x zmqfourue.sh
+    sudo ./zmqfourue.sh
 
-After a short time you can observe through the logs that UE1 will be considered malicious and moved to a different slice. You also observe the traffic exchange for UE1 will significantly decrease.
+
 
 .. note::
 
-   To run the script again, you have to restart the SS xApp and redeploy the network again.
+   To run the script again, you have to restart the xApp and redeploy the network again.
 
 .. code-block:: bash
 
     sudo kubectl -n ricxapp rollout restart deployment ricxapp-ss
+    
+.. note::
+    
+    Rerunning the xapp now requires deleting the pods manually if CUDA has been enabled
 
+    Use "sudo kubectl get pods -A" to see the active pods
+    Use "sudo kubectl delete pod ricxapp-ss-XXX -n ricxapp" change the XXX the correct pod name
+    The correct pod to delete should be in the "running" state
+    
 Getting CUDA On The App
 =======================
 
@@ -552,9 +594,3 @@ NOTE: do not replace what is already there
           nvidia.com/gpu: 1
 
 The Intrustion Detection program should now detect the GPU
-
-NOTE: Rerunning the xapp now requires deleting the pods manually if the deployment file is edited
-
-    Use "sudo kubectl get pods -A" to see the active pods
-    Use "sudo kubectl delete pod ricxapp-ss-XXX -n ricxapp" change the XXX the correct pod name
-    The correct pod to delete should be in the "running" state
