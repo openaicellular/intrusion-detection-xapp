@@ -10,12 +10,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from datetime import datetime, timedelta
 
-
-
 import gc
 import sys
 
-#import wandb
+import wandb
 
 torch.set_num_threads(1)
 
@@ -48,14 +46,14 @@ use_influx_data = True
 n_features = 3  # Adjust based on the number of features (e.g., tx_pkts, tx_error, cqi)
 #os.environ["WANDB_MODE"] = "offline"
 
-#wandb.init(project="rnn-autoencoder-anomaly-test2", config={
-#    "seq_length": seq_length,
-#    "hidden_dim": hidden_dim,
-#    "latent_dim": latent_dim,
-#    "batch_size": batch_size,
-#    "learning_rate": learning_rate,
-#    "num_epochs": num_epochs
-#})
+wandb.init(project="rnn-autoencoder-anomaly-test2", config={
+    "seq_length": seq_length,
+    "hidden_dim": hidden_dim,
+    "latent_dim": latent_dim,
+    "batch_size": batch_size,
+    "learning_rate": learning_rate,
+    "num_epochs": num_epochs
+})
 
 # RNN Autoencoder model
 class RNN_Autoencoder(nn.Module):
@@ -91,7 +89,7 @@ if os.path.exists(model_path):
     print("Model loaded successfully", flush=True)
 else:
     torch.save(model.state_dict(), model_path)
-    print("Initialized model with random weights and saved.", flush=True)
+    print("Model does not exist", flush=True)
 
 model.eval()
       
@@ -117,7 +115,7 @@ def train_model(model, data_tensor, num_epochs=100, batch_size=32, learning_rate
             reconstructed = model(data_batch)
 
             loss = criterion(reconstructed, data_batch)
-            #wandb.log({"epoch": epoch + 1, "loss": loss})
+            wandb.log({"epoch": epoch + 1, "loss": loss})
 
             print('loss:', loss, flush = True)
 
@@ -134,7 +132,7 @@ def train_model(model, data_tensor, num_epochs=100, batch_size=32, learning_rate
         avg_epoch_loss = epoch_loss / len(dataloader)
         print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_epoch_loss:.4f}", flush=True)
         
-        #wandb.log({"epoch": epoch + 1, "Average Epoch loss": avg_epoch_loss})
+        wandb.log({"epoch": epoch + 1, "Average Epoch loss": avg_epoch_loss})
 
         if (epoch + 1) % 100 == 0:
             #torch.save(model.state_dict(), f"autoencoder_epoch_{epoch + 1}.pth")
@@ -142,7 +140,7 @@ def train_model(model, data_tensor, num_epochs=100, batch_size=32, learning_rate
             print(f"Model saved at epoch {epoch + 1}")
     #trained = True
     print("Training complete.", flush=True)
-    #wandb.finish()
+    wandb.finish()
     torch.cuda.empty_cache()
     gc.collect()
     return 1
@@ -180,16 +178,28 @@ def fetch_data_from_influxdb(seq_length, n_features, measurement, fields, durati
             print(f"No data found for UE {ue_id}")
             continue
 
+        #raw_data = np.array([
+        #    [point.get(f, 0.0) for f in fields]
+        #    for point in points
+        #    if all(point.get(f) is not None for f in fields)
+        #], dtype=np.float32)
+        
         raw_data = np.array([
             [point.get(f, 0.0) for f in fields]
             for point in points
-            if all(point.get(f) is not None for f in fields)
+            if all(point.get(f) is not None for f in fields) and point.get('tx_pkts', 0.0) != 0.0
         ], dtype=np.float32)
+        
+        print(f"\n--- Raw data for UE {ue_id} ---", flush=True)
+        print(raw_data, flush=True)
         
         #Normalize The Data
         mean = np.mean(raw_data, axis=0)
         std = np.std(raw_data, axis=0) + 1e-8
         data = (raw_data - mean) / std
+        
+        print(f"\n--- Normalized data for UE {ue_id} ---", flush=True)
+        print(data, flush=True)
 
         num_sequences = len(data) // seq_length
         if num_sequences == 0:
@@ -239,8 +249,7 @@ def detect_anomalies(model, data_tensor, threshold=None):
 
             if len(anomalies) > 0:
                 print(f"Anomalies detected at indices: {anomalies.tolist()}", flush=True)
-                print(f"First anomaly index (anomalies[0]): {anomalies[0].item()}", flush=True)
-                return int(anomalies[0])
+                return [int(idx) for idx in anomalies.tolist()]
             else:
                 return -1
 
@@ -286,35 +295,66 @@ def fetchData():
 
             result = detect_anomalies(model, tensor_data)
 
-            if result != -1:
-                ue_with_anomaly = all_ue_ids[result]
-                print(f"Returning UE ID with anomaly: {ue_with_anomaly}", flush=True)
-                return int(ue_with_anomaly)
+            #if result != -1:
+                #ue_with_anomaly = all_ue_ids[result]
+                #print(f"Returning UE ID with anomaly: {ue_with_anomaly}", flush=True)
+                #return int(ue_with_anomaly)
+                
+            if isinstance(result, list) and len(result) >= 2:
+                ue_indices_with_anomalies = [all_ue_ids[idx] for idx in result if idx < len(all_ue_ids)]
+                ue_anomaly_counts = {ue: ue_indices_with_anomalies.count(ue) for ue in set(ue_indices_with_anomalies)}
+
+                for ue_id, count in ue_anomaly_counts.items():
+                    if count >= 2:
+                        print(f"Returning UE ID with 2+ anomalies: {ue_id}", flush=True)
+                        return int(ue_id)
+
+                print("No UE had 2 or more anomalies.", flush=True)
+                return -1
+
+            else:
+                print("Less than 2 anomalies detected or invalid result.", flush=True)
+                return -1
+
+                
         else:
             print("Training Model", flush=True)
             result = train_model(model, tensor_data, num_epochs=2000, batch_size=32, learning_rate=0.01)
             print("Training finished", flush=True)
 
             if os.path.exists(model_path):
-                print("Path Exists", flush=True)
                 model.load_state_dict(torch.load(model_path, map_location=device))
-                print("Model loaded successfully 2", flush=True)
+                print("Model loaded successfully", flush=True)
                 trained = True
-                print("Trained flag set to True", flush=True)
-
-                result = detect_anomalies(model, tensor_data, threshold=0.1)
+                result = detect_anomalies(model, tensor_data)
                 print("Anomalies successfully detected", flush=True)
                 #print(f"result: {result}, all_ue_ids: {all_ue_ids}", flush=True)
 
-                if all_ue_ids and result != -1 and result < len(all_ue_ids):
-                    ue_with_anomaly = all_ue_ids[result]
-                    print(f"Returning UE ID with anomaly: {ue_with_anomaly}", flush=True)
-                    return int(ue_with_anomaly)
-                else:
-                    print("Result index out of range or all_ue_ids is None!", flush=True)
+                #if all_ue_ids and result != -1 and result < len(all_ue_ids):
+                    #ue_with_anomaly = all_ue_ids[result]
+                    #print(f"Returning UE ID with anomaly: {ue_with_anomaly}", flush=True)
+                    #return int(ue_with_anomaly)
+                #else:
+                    #print("Result index out of range or all_ue_ids is None!", flush=True)
+                    #return -1
+                    
+                if isinstance(result, list) and len(result) >= 2:
+                    ue_indices_with_anomalies = [all_ue_ids[idx] for idx in result if idx < len(all_ue_ids)]
+                    ue_anomaly_counts = {ue: ue_indices_with_anomalies.count(ue) for ue in set(ue_indices_with_anomalies)}
+
+                    for ue_id, count in ue_anomaly_counts.items():
+                        if count >= 2:
+                            print(f"Returning UE ID with 2+ anomalies: {ue_id}", flush=True)
+                            return int(ue_id)
+
+                    print("No UE had 2 or more anomalies.", flush=True)
                     return -1
 
-            return -1
+                else:
+                    print("Less than 2 anomalies detected or invalid result.", flush=True)
+                    return -1
+
+                return -1
 
     except Exception as e:
         print("Intrusion Detection: Error during inference", flush=True)

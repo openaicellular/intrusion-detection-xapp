@@ -51,12 +51,6 @@ Install packages
     sudo apt install git vim tmux build-essential cmake libfftw3-dev libmbedtls-dev libboost-program-options-dev libconfig++-dev libsctp-dev libtool autoconf gnuradio python3-pip iperf3 libzmq3-dev -y
 
 
-For this Workshop, it is recommended to use tmux to be able to manage many terminal sessions at once. Here is a cheatsheet for how to use tmux
-
-.. image:: tmux.png
-   :width: 60%
-   :alt: Tmux cheatsheet
-
 Setup
 =====
 
@@ -90,6 +84,22 @@ You can check if all the pods in the Kubernetes Cluster are in “Running” sta
 .. code-block:: bash
 
     sudo kubectl get pods -A
+
+NOTE: There is an issue with with this setup at the moment. Uninstalling docker and installing an older verison will fix it
+
+.. code-block:: bash
+
+    sudo apt-get purge -y docker-engine docker docker.io docker-ce docker-ce-cli
+    sudo apt-get autoremove -y --purge docker-engine docker docker.io docker-ce
+    sudo rm -rf /var/lib/docker /etc/docker
+
+    apt-cache madison docker-ce
+
+This will list the available versions for install. Install the oldest verion listed.
+
+.. code-block:: bash
+
+    sudo apt-get install docker-ce=<VERSION> docker-ce-cli=<VERSION> containerd.io
 
 One time setup for Influxdb
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -445,7 +455,7 @@ Iperf3
     
 .. code-block:: bash
 
-    iperf3 -s -B 172.16.0.1 -p 5022 -i
+    iperf3 -s -B 172.16.0.1 -p 5022 -i 1
 
 .. note::
 
@@ -457,19 +467,19 @@ We add an additional bandwidth argument "-b xxM" on each iperf3 test on client s
 
 .. code-block:: bash
 
-   sudo ip netns exec ue1 iperf3 -c 172.16.0.1 -p 5006 -i 1 -t 36000 -R -b 10M
+   sudo ip netns exec ue1 iperf3 -c 172.16.0.1 -p 5006 -i 1 -t 36000 -R -b 1M
 
 .. code-block:: bash
 
-   sudo ip netns exec ue2 iperf3 -c 172.16.0.1 -p 5020 -i 1 -t 36000 -R -b 10M
+   sudo ip netns exec ue2 iperf3 -c 172.16.0.1 -p 5020 -i 1 -t 36000 -R -b 1M
    
 .. code-block:: bash
 
-   sudo ip netns exec ue3 iperf3 -c 172.16.0.1 -p 5021 -i 1 -t 36000 -R -b 10M
+   sudo ip netns exec ue3 iperf3 -c 172.16.0.1 -p 5021 -i 1 -t 36000 -R -b 1M
    
 .. code-block:: bash
 
-   sudo ip netns exec ue4 iperf3 -c 172.16.0.1 -p 5022 -i 1 -t 36000 -R -b 10M
+   sudo ip netns exec ue4 iperf3 -c 172.16.0.1 -p 5022 -i 1 -t 36000 -R -b 1M
 
 You should notice traffic flow on both the server and client side for all UEs.
 
@@ -528,8 +538,6 @@ Running the xApp
     sudo chmod +x zmqfourue.sh
     sudo ./zmqfourue.sh
 
-
-
 .. note::
 
    To run the script again, you have to restart the xApp and redeploy the network again.
@@ -545,6 +553,20 @@ Running the xApp
     Use "sudo kubectl get pods -A" to see the active pods
     Use "sudo kubectl delete pod ricxapp-ss-XXX -n ricxapp" change the XXX the correct pod name
     The correct pod to delete should be in the "running" state
+
+If running the intrustion detection with the iperf3 commands above, there should be no malicious ue. Two anomalies are required 
+per ue for it to be considered malicious. There is a script called <INSERT NAME> that will throttle the iperf3 client and cause a malicious
+UE to appear. Replace: 
+
+.. code-block:: bash
+
+    sudo ip netns exec ue1 iperf3 -c 172.16.0.1 -p 5006 -i 1 -t 36000 -R -b 1M
+
+With:
+
+.. code-block:: bash
+
+    <INSERT SCRIPT>
     
 Getting CUDA On The App
 =======================
@@ -552,6 +574,8 @@ Getting CUDA On The App
 To run the xApp with GPU support follow these steps
 
 Make sure the correct NVIDIA drivers are installed and install NVIDIA container toolkit:
+
+.. code-block:: bash
 
     curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
     && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
@@ -564,11 +588,15 @@ Make sure the correct NVIDIA drivers are installed and install NVIDIA container 
 Configure Docker to Run with CUDA
 =================================
 
+.. code-block:: bash
+
     sudo nvidia-ctk runtime configure --runtime=docker
     sudo systemctl daemon-reload
     sudo systemctl restart docker
     
 The kubernetes node should now show the GPU as allocatable. Run the commands below to check
+
+.. code-block:: bash
 
     sudo kubectl get nodes
     sudo kubectl describe node <node-name>
@@ -580,12 +608,13 @@ You should see something along the lines of:
         
 If the GPU is allocatable run:
 
+.. code-block:: bash
+
     kubectl get deployment ricxapp-ss -n ricxapp -o yaml > deploymentGPU.yaml
     nano deploymentGPU.yaml
     kubectl apply -f deploymentGPU.yaml
 
 Update the the resources limits requests and add:
-NOTE: do not replace what is already there 
 
     resources:
         requests:
@@ -594,3 +623,4 @@ NOTE: do not replace what is already there
           nvidia.com/gpu: 1
 
 The Intrustion Detection program should now detect the GPU
+NOTE: do not replace what is already there 
