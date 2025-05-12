@@ -553,20 +553,24 @@ Running the xApp
     Use "sudo kubectl get pods -A" to see the active pods
     Use "sudo kubectl delete pod ricxapp-ss-XXX -n ricxapp" change the XXX the correct pod name
     The correct pod to delete should be in the "running" state
+    
+There is a flag in the intrustionDetection.py file called "trained" that is set to false by default. When false the model will train before doing
+the inference for the intrusion detection. If you only want to do the inference set it to "True".    
 
 If running the intrustion detection with the iperf3 commands above, there should be no malicious ue. Two anomalies are required 
-per ue for it to be considered malicious. There is a script called <INSERT NAME> that will throttle the iperf3 client and cause a malicious
+per ue for it to be considered malicious. There is a script called iperfThrottleTest.sh that will throttle the iperf3 client and cause a malicious
 UE to appear. Replace: 
 
 .. code-block:: bash
 
     sudo ip netns exec ue1 iperf3 -c 172.16.0.1 -p 5006 -i 1 -t 36000 -R -b 1M
 
-With:
+With. While the xappp is in inference mode:
 
 .. code-block:: bash
 
-    <INSERT SCRIPT>
+    cd oaic/intrusion-detection-xapp
+    ./iperfThrottleTest.sh
     
 Getting CUDA On The App
 =======================
