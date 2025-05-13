@@ -26,10 +26,10 @@ RUN apt-get update \
 	     rmr rmr-dev \
      ) \
   && rm -rf /var/lib/apt/lists/*
-
+  
 RUN apt-get update \
   && apt-get install -y python3-dev python3-pip \
-  && python3 -m pip install influxdb numpy datetime psutil \
+  && python3 -m pip install influxdb numpy datetime psutil \                                     
   && update-alternatives --install /usr/bin/python python /usr/bin/python3 1
   
 WORKDIR /app
@@ -69,25 +69,28 @@ RUN cd /tmp \
   && mkdir -p build && cd build \
   && cmake ../ && make install && ldconfig \
   && cd .. && rm -rf /tmp/influxdb-cxx
-
+    
 COPY . /nexran
+
+RUN chown -R root:root /nexran
+RUN chmod -R 755 /nexran
 
 RUN cd /nexran \
   && rm -rf build && mkdir build && cd build \
   && ( [ ! -e /nexran/lib/e2ap/messages/e2ap-v01.00.asn1 ] \
        && mkdir -p /nexran/lib/e2ap/messages/generated \
-       && curl https://www.emulab.net/downloads/johnsond/profile-oai-oran/E2AP-v01.00-generated-bindings.tar.gz | tar -xzv -C /nexran/lib/e2ap/messages/generated \
+       && curl -L https://github.com/openaicellular/srslte-e2/raw/dcb36641c074a9b6d56a3a63712685efbb5ade1e/e2_bindings/E2AP-v01.00-generated-bindings.tar.gz | tar -xzv -C /nexran/lib/e2ap/messages/generated \
        && echo "RIC_GENERATED_E2AP_BINDING_DIR:STRING=/nexran/lib/e2ap/messages/generated/E2AP-v01.00" >> CMakeCache.txt ) \
      || true \
   && ( [ ! -e /nexran/lib/e2sm/messages/e2sm-kpm-v01.00.asn1 ] \
        && mkdir -p /nexran/lib/e2sm/messages/generated \
-       && curl https://www.emulab.net/downloads/johnsond/profile-oai-oran/E2SM-KPM-ext-generated-bindings.tar.gz | tar -xzv -C /nexran/lib/e2sm/messages/generated \
+       && curl -L https://github.com/openaicellular/srslte-e2/raw/dcb36641c074a9b6d56a3a63712685efbb5ade1e/e2_bindings/E2SM-KPM-ext-generated-bindings.tar.gz | tar -xzv -C /nexran/lib/e2sm/messages/generated \
        && cp /nexran/E2SM_KPM_PerUEReportListItem.h /nexran/lib/e2sm/messages/generated/E2SM-KPM/E2SM_KPM_PerUEReportListItem.h \
        && cp /nexran/E2SM_KPM_PerUEReportListItem.c /nexran/lib/e2sm/messages/generated/E2SM-KPM/E2SM_KPM_PerUEReportListItem.c \
        && echo "RIC_GENERATED_E2SM_KPM_BINDING_DIR:STRING=/nexran/lib/e2sm/messages/generated/E2SM-KPM" >> CMakeCache.txt ) \
      || true \
   && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ../ \
-  && make install && ldconfig 
+  && make install && ldconfig
 
 ENV RMR_RTG_SVC="9999" \
     RMR_SEED_RT="/nexran/etc/routes.txt" \
