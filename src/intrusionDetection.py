@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import gc
 import sys
 
-import wandb
+#import wandb
 
 torch.set_num_threads(1)
 
@@ -46,14 +46,14 @@ use_influx_data = True
 n_features = 3  # Adjust based on the number of features (e.g., tx_pkts, tx_error, cqi)
 #os.environ["WANDB_MODE"] = "offline"
 
-wandb.init(project="rnn-autoencoder-anomaly-test2", config={
-    "seq_length": seq_length,
-    "hidden_dim": hidden_dim,
-    "latent_dim": latent_dim,
-    "batch_size": batch_size,
-    "learning_rate": learning_rate,
-    "num_epochs": num_epochs
-})
+#wandb.init(project="rnn-autoencoder-anomaly-test2", config={
+#    "seq_length": seq_length,
+#    "hidden_dim": hidden_dim,
+#    "latent_dim": latent_dim,
+#    "batch_size": batch_size,
+#    "learning_rate": learning_rate,
+#    "num_epochs": num_epochs
+#})
 
 # RNN Autoencoder model
 class RNN_Autoencoder(nn.Module):
@@ -115,7 +115,7 @@ def train_model(model, data_tensor, num_epochs=100, batch_size=32, learning_rate
             reconstructed = model(data_batch)
 
             loss = criterion(reconstructed, data_batch)
-            wandb.log({"epoch": epoch + 1, "loss": loss})
+            #wandb.log({"epoch": epoch + 1, "loss": loss})
 
             print('loss:', loss, flush = True)
 
@@ -132,7 +132,7 @@ def train_model(model, data_tensor, num_epochs=100, batch_size=32, learning_rate
         avg_epoch_loss = epoch_loss / len(dataloader)
         print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_epoch_loss:.4f}", flush=True)
         
-        wandb.log({"epoch": epoch + 1, "Average Epoch loss": avg_epoch_loss})
+        #wandb.log({"epoch": epoch + 1, "Average Epoch loss": avg_epoch_loss})
 
         if (epoch + 1) % 100 == 0:
             #torch.save(model.state_dict(), f"autoencoder_epoch_{epoch + 1}.pth")
@@ -140,7 +140,7 @@ def train_model(model, data_tensor, num_epochs=100, batch_size=32, learning_rate
             print(f"Model saved at epoch {epoch + 1}")
     #trained = True
     print("Training complete.", flush=True)
-    wandb.finish()
+    #wandb.finish()
     torch.cuda.empty_cache()
     gc.collect()
     return 1
